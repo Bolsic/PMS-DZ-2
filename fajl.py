@@ -22,19 +22,120 @@ class StopFlag:
         return self.flag
     
 
+
+class Acquisition:
+    def __init__(self, queue: Queue, stop: StopFlag):
+        self.ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)
+        self.queue = queue
+        self.stop = stop
+        self.calibrationParams = np.zeros((3,2))
+
+    def start(self):
+        # Write calibration paramaters to a file
+        # self.saveCalibrationParams()
+
+        self.acquire_data()
+
+    def parseSerialData(self):
+        # x:0.0,y:0.0,z:0.0
+        
+        # Read data from serial
+
+        data = self.ser.readline()
+        if data == None or data == b'': 
+            print("No data")
+            return None
+
+        # Split data into x, y and z
+        data = data.split(b',')
+        floats = np.array(list(map(lambda x: float(x.split(b':')[-1]), data)))
+    
+        print("floats: ", floats)
+        return floats        
+
+    def acquire_data(self):
+        # Continuously acquire data
+        while not self.stop.is_set():
+            print('Acquiring data')
+            floats = self.parseSerialData()
+            if floats is None:
+                continue
+
+            # Calculate roll and pitch
+            gravity = floats * self.calibrationParams[:,0] + self.calibrationParams[:,1]
+            roll = np.arctan2(gravity[0], np.sqrt(pow(gravity[1], 2) + pow(gravity[2], 2)))
+            pitch = np.arctan2(gravity[1], np.sqrt(pow(gravity[0], 2) + pow(gravity[2], 2)))
+
+            # Put acquired data to the queue
+            self.queue.put([roll, pitch])
+    
+    def calibrate(self, coordinate):
+    
+
+        print("Calibrating " + coordinate + "...")
+        coordinate_num = 0
+        if coordinate == 'Y':
+            coordinate_num = 1
+        elif coordinate == 'Z':
+            coordinate_num = 2
+
+        # Send signal to Arduino to start calibration
+        msg = 'calibrate-' + coordinate + '\n'
+        self.ser.write(msg.encode())
+        dataPlus = np.array([])
+        dataMinus = np.array([])
+        
+        
+        # Read data from Arduino TWICE
+        for dataArray in [dataPlus, dataMinus]:
+            calibration_start_time = time.time()
+            i = 0
+            while time.time() - calibration_start_time < 3 and i < 10:
+                print("Elapsed time: ", time.time() - calibration_start_time)
+                print("Reading data...")
+                data = self.parseSerialData()
+                if data != None:
+                    dataArray.append(data[coordinate_num])
+                    i += 1
+
+
+        # Calculate k and n
+        k = 19.62 / (np.mean(dataPlus) - np.mean(dataMinus))
+        n = -9.81 - k * np.mean(dataMinus)
+
+        # Save k and n to calibrationParams
+        self.calibrationParams[coordinate_num] = [k, n]
+        
+    def saveCalibrationParams(self):
+        with open('./calibrationParams.txt', 'w') as f:
+            for i in range(3):
+                f.write(str('k = ' + self.calibrationParams[i][0]) + '  n = ' + str(self.calibrationParams[i][1]) + '\n')
+
+    def wait_for_calibration(self):
+        while not self.stop.is_set():
+            print('Waiting for calibration')
+            data = self.ser.readline()
+            print(data)
+            if data == b'CALIBRATION\n':
+                return True
+        return False
+
+
+
 class App(QWidget):
 
     def __init__(self):
         super().__init__()
+        # TODO: Initialize serial communication
         self.ser = serial.Serial('/dev/ttyACM0', 9600)
         self.title = 'Proba'
         self.left = 200
 
-        self.calibrationParams = {
-            'X': [0, 0],
-            'Y': [0, 0],
-            'Z': [0, 0]
-        }
+        self.queue = Queue()
+        self.stop = StopFlag()
+        self.acquisition = Acquisition(Queue(), StopFlag())
+        
+        self.acquisition_thread = threading.Thread(target=self.acquisition.start)
 
         self.top = 200
         self.width = 730
@@ -110,33 +211,9 @@ class App(QWidget):
         self.calibrateCoordinate("Z")        
 
     def calibrateCoordinate(self, coordinate):
-        print("Calibrating " + coordinate + "...")
-        # TODO: Implement calibration
-
-        # Send signal to Arduino to start calibration
-        self.ser.write(('calibrate-' + coordinate + '\n').encode())
-        dataArray = []
-        
-        # Read data from Arduino TWICE
-        for merenje in range(2):
-            dataArray.append(np.array([]))
-            start_time = time.time()
-            i = 0
-            while time.time() - start_time < 3 or i < 50:
-                data = self.ser.readline()
-                data = data.decode('utf-8')
-                dataArray[merenje].append(float(data))
-                i += 1
-
-            # Calculate mean value of the data
-            dataArray[merenje] = np.mean(dataArray)
-
-        # Calculate k and n
-        k = 19.62 / (dataArray[0] - dataArray[1])
-        n = -9.81 - k * dataArray[1]
-
-        # Save k and n to calibrationParams
-        self.calibrationParams[coordinate] = [k, n]
+        self.calibration_thread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
+        self.calibration_thread.start()
+        self.calibration_thread.join()
 
     
     def endCalibration(self):
@@ -146,10 +223,16 @@ class App(QWidget):
         self.buttonZ.deleteLater()
         self.buttonEndCalibration.deleteLater()
 
-        # TODO: Save the name of the pilot and calibration paramaters to a file
+        self.savePilotNameAndParams()
+        
+    def savePilotNameAndParams(self):
+        # Save the name of the pilot to a file
+        with open('./calibrationParams.txt', 'w') as f:
+            f.write(self.text_input.text() + ' ' + '\n')
+        self.acquisition.saveCalibrationParams()
 
     def startFlight(self):
-        print("LETIM")
+        print("LETIM WEEEE")
 
     def off(self):
         print("bye bye...")

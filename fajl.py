@@ -18,7 +18,7 @@ class StopFlag:
     def set(self):
         self.flag = True
     
-    def is_set(self):
+    def isSet(self):
         return self.flag
     
 
@@ -35,9 +35,7 @@ class Acquisition:
         # x:0.0,y:0.0,z:0.0
         
         # Read data from serial
-
         data = self.ser.readline()
-        #print("DATA: ", data)
         if data == None or data == b'': 
             print("No data")
             return None
@@ -46,12 +44,11 @@ class Acquisition:
         data = data.split(b',')
         floats = np.array(list(map(lambda x: float(x.split(b':')[-1]), data)))
     
-        #print("floats: ", floats)
         return floats        
 
-    def acquire_data(self):
+    def acquireData(self):
         # Continuously acquire data
-        while not self.stop.is_set():
+        while not self.stop.isSet():
             #print('Acquiring data')
             floats = self.parseSerialData()
             if floats is None:
@@ -64,17 +61,22 @@ class Acquisition:
 
             print("Roll: ", roll, "   Pitch: ", pitch)
 
+            dataSerialSend = pitch / (np.pi / 2) * 255
+            if dataSerialSend > 255: dataSerialSend = 255
+            if dataSerialSend < -255: dataSerialSend = -255
+            self.ser.write(dataSerialSend.encode())
+
             # Put acquired data to the queue
             self.queue.put([roll, pitch])
             
     def calibrate(self, coordinate):
     
         print("Calibrating " + coordinate + "...")
-        coordinate_num = 0
+        coordinateNum = 0
         if coordinate == 'Y':
-            coordinate_num = 1
+            coordinateNum = 1
         elif coordinate == 'Z':
-            coordinate_num = 2
+            coordinateNum = 2
 
         # Send signal to Arduino to start calibration
         msg = 'calibrate-' + coordinate + '\n'
@@ -85,19 +87,17 @@ class Acquisition:
         
         # Read data from Arduino TWICE
         for dataArray in [dataPlus, dataMinus]:
-            calibration_start_time = time.time()
+            calibrationStartTime = time.time()
             i = 0
-            while time.time() - calibration_start_time < 5 and i < 5:
-                print("Elapsed time: ", time.time() - calibration_start_time)
+            while time.time() - calibrationStartTime < 5 and i < 5:
+                print("Elapsed time: ", time.time() - calibrationStartTime)
                 print("Reading data...")
                 data = self.parseSerialData()
                 if data.any() != None:
-                    dataArray.append(data[coordinate_num])
+                    dataArray.append(data[coordinateNum])
                     i += 1
                     if (i == 5):
-                        self.isCalibrated[coordinate_num] = True
-                print(dataArray)
-
+                        self.isCalibrated[coordinateNum] = True
 
         # Calculate k and n
         dataPlus = np.array(dataPlus)
@@ -106,17 +106,17 @@ class Acquisition:
         n = -9.81 - k * np.mean(dataMinus)
 
         # Save k and n to calibrationParams
-        print(k, n)
-        self.calibrationParams[coordinate_num] = [k, n]
+        self.calibrationParams[coordinateNum] = [k, n]
         
     def saveCalibrationParams(self):
+
         with open('./calibrationParams.txt', 'a') as f:
             for i in range(3):
                 f.write(str('k = ' + str(self.calibrationParams[i][0])) + 
                         '  n = ' + str(self.calibrationParams[i][1]) + ':\n')
 
-    def wait_for_calibration(self):
-        while not self.stop.is_set():
+    def waitForCalibration(self):
+        while not self.stop.isSet():
             print('Waiting for calibration')
             data = self.ser.readline()
             print(data)
@@ -169,9 +169,9 @@ class App(QWidget):
         self.offButton.clicked.connect(self.off)
 
         # Add text input field
-        self.text_input = QLineEdit('1', self)
-        self.text_input.resize(100, 50)
-        self.text_input.move(10, 190)
+        self.textInput = QLineEdit('1', self)
+        self.textInput.resize(100, 50)
+        self.textInput.move(10, 190)
 
         self.show()
 
@@ -215,11 +215,15 @@ class App(QWidget):
         self.calibrateCoordinate("Z")        
 
     def calibrateCoordinate(self, coordinate):
-        self.calibration_thread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
-        self.calibration_thread.start()
-        self.calibration_thread.join()
+        self.calibrationThread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
+        self.calibrationThread.start()
+        self.calibrationThread.join()
     
     def endCalibration(self):
+        if self.acquisition.isCalibrated.any() == None:
+            print("Not all axies were calibrated!")
+            return
+
         # Remove X, Y, Z and End Calibration buttons
         self.buttonX.deleteLater()
         self.buttonY.deleteLater()
@@ -232,14 +236,14 @@ class App(QWidget):
     def savePilotNameAndParams(self):
         # Save the name of the pilot to a file
         with open('./calibrationParams.txt', 'a') as f:
-            f.write(self.text_input.text() + ' ' + '\n')
+            f.write(self.textInput.text() + ' ' + '\n')
         self.acquisition.saveCalibrationParams()
 
     def startFlight(self):
         # Start acquisition
         print("Starting flight...")
-        self.acquisition_thread = threading.Thread(target=self.acquisition.acquire_data)
-        self.acquisition_thread.start()     
+        self.calibrationThread = threading.Thread(target=self.acquisition.acquireData)
+        self.calibrationThread.start()     
 
     def off(self):
         # Add plot button to the interface
@@ -250,8 +254,6 @@ class App(QWidget):
         self.buttonX.move(10, 250)
         self.buttonX.clicked.connect(self.plotData)
         self.buttonX.show()
-    
-        
 
     def plotData(self):
         # Acquire data fro mthe queue

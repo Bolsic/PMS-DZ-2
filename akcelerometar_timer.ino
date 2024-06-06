@@ -5,7 +5,7 @@ String operation = "";
 String inputString = "";
 String last_operation = "";
 String next_operation = "";
-
+//komentar
 bool calibration = false;
 
 

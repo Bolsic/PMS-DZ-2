@@ -29,12 +29,7 @@ class Acquisition:
         self.queue = queue
         self.stop = stop
         self.calibrationParams = np.zeros((3,2))
-
-    def start(self):
-        # Write calibration paramaters to a file
-        # self.saveCalibrationParams()
-
-        self.acquire_data()
+        self.isCalibrated = [False, False, False]
 
     def parseSerialData(self):
         # x:0.0,y:0.0,z:0.0
@@ -42,6 +37,7 @@ class Acquisition:
         # Read data from serial
 
         data = self.ser.readline()
+        #print("DATA: ", data)
         if data == None or data == b'': 
             print("No data")
             return None
@@ -50,13 +46,13 @@ class Acquisition:
         data = data.split(b',')
         floats = np.array(list(map(lambda x: float(x.split(b':')[-1]), data)))
     
-        print("floats: ", floats)
+        #print("floats: ", floats)
         return floats        
 
     def acquire_data(self):
         # Continuously acquire data
         while not self.stop.is_set():
-            print('Acquiring data')
+            #print('Acquiring data')
             floats = self.parseSerialData()
             if floats is None:
                 continue
@@ -66,12 +62,13 @@ class Acquisition:
             roll = np.arctan2(gravity[0], np.sqrt(pow(gravity[1], 2) + pow(gravity[2], 2)))
             pitch = np.arctan2(gravity[1], np.sqrt(pow(gravity[0], 2) + pow(gravity[2], 2)))
 
+            print("Roll: ", roll, "   Pitch: ", pitch)
+
             # Put acquired data to the queue
             self.queue.put([roll, pitch])
-    
+            
     def calibrate(self, coordinate):
     
-
         print("Calibrating " + coordinate + "...")
         coordinate_num = 0
         if coordinate == 'Y':
@@ -82,34 +79,41 @@ class Acquisition:
         # Send signal to Arduino to start calibration
         msg = 'calibrate-' + coordinate + '\n'
         self.ser.write(msg.encode())
-        dataPlus = np.array([])
-        dataMinus = np.array([])
+        dataPlus = []
+        dataMinus = []
         
         
         # Read data from Arduino TWICE
         for dataArray in [dataPlus, dataMinus]:
             calibration_start_time = time.time()
             i = 0
-            while time.time() - calibration_start_time < 3 and i < 10:
+            while time.time() - calibration_start_time < 5 and i < 5:
                 print("Elapsed time: ", time.time() - calibration_start_time)
                 print("Reading data...")
                 data = self.parseSerialData()
-                if data != None:
+                if data.any() != None:
                     dataArray.append(data[coordinate_num])
                     i += 1
+                    if (i == 5):
+                        self.isCalibrated[coordinate_num] = True
+                print(dataArray)
 
 
         # Calculate k and n
+        dataPlus = np.array(dataPlus)
+        dataMinus = np.array(dataMinus)
         k = 19.62 / (np.mean(dataPlus) - np.mean(dataMinus))
         n = -9.81 - k * np.mean(dataMinus)
 
         # Save k and n to calibrationParams
+        print(k, n)
         self.calibrationParams[coordinate_num] = [k, n]
         
     def saveCalibrationParams(self):
-        with open('./calibrationParams.txt', 'w') as f:
+        with open('./calibrationParams.txt', 'a') as f:
             for i in range(3):
-                f.write(str('k = ' + self.calibrationParams[i][0]) + '  n = ' + str(self.calibrationParams[i][1]) + '\n')
+                f.write(str('k = ' + str(self.calibrationParams[i][0])) + 
+                        '  n = ' + str(self.calibrationParams[i][1]) + ':\n')
 
     def wait_for_calibration(self):
         while not self.stop.is_set():
@@ -123,7 +127,6 @@ class Acquisition:
 
 
 class App(QWidget):
-
     def __init__(self):
         super().__init__()
         # TODO: Initialize serial communication
@@ -133,9 +136,10 @@ class App(QWidget):
 
         self.queue = Queue()
         self.stop = StopFlag()
-        self.acquisition = Acquisition(Queue(), StopFlag())
-        
-        self.acquisition_thread = threading.Thread(target=self.acquisition.start)
+        self.acquisition = Acquisition(self.queue, self.stop)
+
+        self.dataPitch = []
+        self.dataRoll = []
 
         self.top = 200
         self.width = 730
@@ -214,7 +218,6 @@ class App(QWidget):
         self.calibration_thread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
         self.calibration_thread.start()
         self.calibration_thread.join()
-
     
     def endCalibration(self):
         # Remove X, Y, Z and End Calibration buttons
@@ -223,19 +226,52 @@ class App(QWidget):
         self.buttonZ.deleteLater()
         self.buttonEndCalibration.deleteLater()
 
-        self.savePilotNameAndParams()
+        if all(self.acquisition.isCalibrated):
+            self.savePilotNameAndParams()   
         
     def savePilotNameAndParams(self):
         # Save the name of the pilot to a file
-        with open('./calibrationParams.txt', 'w') as f:
+        with open('./calibrationParams.txt', 'a') as f:
             f.write(self.text_input.text() + ' ' + '\n')
         self.acquisition.saveCalibrationParams()
 
     def startFlight(self):
-        print("LETIM WEEEE")
+        # Start acquisition
+        print("Starting flight...")
+        self.acquisition_thread = threading.Thread(target=self.acquisition.acquire_data)
+        self.acquisition_thread.start()     
 
     def off(self):
-        print("bye bye...")
+        # Add plot button to the interface
+        print("Stopping...")
+        self.stop.set()
+        self.buttonX = QPushButton('Plot Data', self)
+        self.buttonX.resize(100, 50)
+        self.buttonX.move(10, 250)
+        self.buttonX.clicked.connect(self.plotData)
+        self.buttonX.show()
+    
+        
+
+    def plotData(self):
+        # Acquire data fro mthe queue
+        while not self.queue.empty():
+            data = self.queue.get()
+            print(data)
+            self.dataRoll.append(data[0])
+            self.dataPitch.append(data[1])
+        
+        self.dataPitch = np.array(self.dataPitch)
+        self.dataRoll = np.array(self.dataRoll)
+
+        # Plot data as a new element on the interface
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plotData = np.vstack((self.dataRoll, self.dataPitch))
+        ax.plot(plotData.T)
+        ax.set_title('Roll and Pitch')
+        ax.legend('Roll', 'Pitch')
+        plt.show()
 
 
 if __name__ == '__main__':

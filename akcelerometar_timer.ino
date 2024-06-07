@@ -5,7 +5,7 @@ String operation = "";
 String inputString = "";
 String last_operation = "";
 String next_operation = "";
-int num1= 0 ;
+int num1 = 0;
 bool calibration = false;
 bool negative = false;
 bool flag = false;
@@ -16,7 +16,7 @@ volatile int z = 0;
 int value = 0;
 int number = 0;
 volatile byte stanje = 0;
-//const int VCCPin = A0;
+// const int VCCPin = A0;
 const int xPin = A0;
 const int yPin = A1;
 const int zPin = A2;
@@ -31,54 +31,62 @@ const int DIO = 8;
 
 TM1637Display display(CLK, DIO);
 
-
-
-void setup() {
+void setup()
+{
   Serial.begin(9600);
   Timer1.initialize(1000000);
   Timer1.attachInterrupt(timerIsr);
   pinMode(TOUCH_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(TOUCH_PIN),takeValue, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(TOUCH_PIN), takeValue, CHANGE);
   pinMode(rLED, OUTPUT);
-  
+
   pinMode(gLED, OUTPUT);
 
   display.setBrightness(7);
 }
 
-void loop() {
-  if (operation == "calibrateX"){
+void loop()
+{
+  if (operation == "calibrateX")
+  {
     value = axisCalibration(x);
   }
-  else if (operation == "calibrateY"){
+  else if (operation == "calibrateY")
+  {
     value = axisCalibration(y);
   }
-  else if (operation == "calibrateZ"){
+  else if (operation == "calibrateZ")
+  {
     value = axisCalibration(z);
   }
-  else if (operation == "start"){
+  else if (operation == "start")
+  {
     ledDiode();
   }
-
-
 }
 
-void takeValue(){
-  if (calibration){
+void takeValue()
+{
+  if (calibration)
+  {
     printValue();
     calibration = false;
   }
 }
 
-void ledDiode(){
+void ledDiode()
+{
   printValue();
-  while (operation != "kraj letenja"){
+  while (operation != "kraj letenja")
+  {
     serialEvent();
-    if (negative){
-    analogWrite(rLED, number);
-    analogWrite(gLED, 0);
+    if (negative)
+    {
+      analogWrite(rLED, number);
+      analogWrite(gLED, 0);
     }
-    else {
+    else
+    {
       analogWrite(gLED, number);
       analogWrite(rLED, 0);
     }
@@ -87,56 +95,65 @@ void ledDiode(){
   }
   analogWrite(rLED, 0);
   analogWrite(gLED, 0);
-  
 }
 
-void printValue(){
-  for (int i = 0; i < 5; i++){
-      Serial.print("x:");
-      Serial.print(x);
-      Serial.print(",y:");
-      Serial.print(y);
-      Serial.print(",z:");
-      Serial.print(z);
-      Serial.print("\n");
+void printValue()
+{
+  for (int i = 0; i < 5; i++)
+  {
+    Serial.print("x:");
+    Serial.print(x);
+    Serial.print(",y:");
+    Serial.print(y);
+    Serial.print(",z:");
+    Serial.print(z);
+    Serial.print("\n");
   }
 }
 
-void serialEvent() {
-  while (Serial.available()) {
+void serialEvent()
+{
+  while (Serial.available())
+  {
     char inChar = (char)Serial.read();
-    if (inChar == '\n'){
+    if (inChar == '\n')
+    {
 
       operation = inputString;
       number = num1;
       num1 = 0;
       negative = flag;
       flag = false;
-      if (inputString == "calibrateX" || inputString == "calibrateY" || inputString == "calibrateZ") calibration = true;
+      if (inputString == "calibrateX" || inputString == "calibrateY" || inputString == "calibrateZ")
+        calibration = true;
       inputString = "";
     }
     else if (inChar == '-')
-      flag  = true;
-    else if (inChar >= '0' && inChar <= '9') {
+      flag = true;
+    else if (inChar >= '0' && inChar <= '9')
+    {
       num1 = num1 * 10 + inChar - '0';
     }
-    else {
+    else
+    {
       inputString += inChar;
     }
   }
 }
 
-
-int axisCalibration(int value){
-  if (stanje == 1){
-      display.showNumberDec(value);
-      stanje = 0;
+int axisCalibration(int value)
+{
+  if (stanje == 1)
+  {
+    display.showNumberDec(value);
+    stanje = 0;
   }
 
   return value;
 }
 
-void timerIsr(){
+void timerIsr()
+{
   x = analogRead(xPin);
   y = analogRead(yPin);
   z = analogRead(zPin);

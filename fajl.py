@@ -37,8 +37,8 @@ class Acquisition:
         # Read data from serial
         data = self.ser.readline()
         if data == None or data == b'': 
-            print("No data")
-            return None
+            #print("No data")
+            return [None, None, None]
 
         # Split data into x, y and z
         data = data.split(b',')
@@ -47,11 +47,15 @@ class Acquisition:
         return floats        
 
     def acquireData(self):
+        commandMsg = 'start\n'
+        self.ser.write(commandMsg.encode())
+
         # Continuously acquire data
         while not self.stop.isSet():
-            #print('Acquiring data')
             floats = self.parseSerialData()
-            if floats is None:
+            print(floats)
+            # Check if any of the in the list data are None
+            if any([x is None for x in floats]):
                 continue
 
             # Calculate roll and pitch
@@ -64,10 +68,17 @@ class Acquisition:
             dataSerialSend = pitch / (np.pi / 2) * 255
             if dataSerialSend > 255: dataSerialSend = 255
             if dataSerialSend < -255: dataSerialSend = -255
+
+            dataSerialSend = int(dataSerialSend)
+            print("Sent on serial: ", dataSerialSend)
+            dataSerialSend = str(dataSerialSend) + '\n'
+
             self.ser.write(dataSerialSend.encode())
 
             # Put acquired data to the queue
             self.queue.put([roll, pitch])
+
+        self.ser.write("kraj letenja\n".encode())
             
     def calibrate(self, coordinate):
     
@@ -79,25 +90,33 @@ class Acquisition:
             coordinateNum = 2
 
         # Send signal to Arduino to start calibration
-        msg = 'calibrate-' + coordinate + '\n'
-        self.ser.write(msg.encode())
+        commandMsg = 'calibrate' + coordinate + '\n'
+        self.ser.write(commandMsg.encode())
         dataPlus = []
         dataMinus = []
         
-        
+        iteration = 0
         # Read data from Arduino TWICE
         for dataArray in [dataPlus, dataMinus]:
             calibrationStartTime = time.time()
             i = 0
-            while time.time() - calibrationStartTime < 5 and i < 5:
+            while i < 5:
                 print("Elapsed time: ", time.time() - calibrationStartTime)
                 print("Reading data...")
+                if (time.time() - calibrationStartTime >= 18):
+                    print("Time is up!")
+                    break
                 data = self.parseSerialData()
-                if data.any() != None:
+                # Check if any of the in the list data are None
+                if not any([x is None for x in data]):
                     dataArray.append(data[coordinateNum])
+                    print(dataArray)
                     i += 1
                     if (i == 5):
                         self.isCalibrated[coordinateNum] = True
+            if iteration == 0:
+                self.ser.write(commandMsg.encode())
+                iteration += 1
 
         # Calculate k and n
         dataPlus = np.array(dataPlus)
@@ -220,7 +239,8 @@ class App(QWidget):
         self.calibrationThread.join()
     
     def endCalibration(self):
-        if self.acquisition.isCalibrated.any() == None:
+        # Check if all axies were calibrated
+        if not all(self.acquisition.isCalibrated):
             print("Not all axies were calibrated!")
             return
 
@@ -259,7 +279,6 @@ class App(QWidget):
         # Acquire data fro mthe queue
         while not self.queue.empty():
             data = self.queue.get()
-            print(data)
             self.dataRoll.append(data[0])
             self.dataPitch.append(data[1])
         
@@ -272,7 +291,7 @@ class App(QWidget):
         plotData = np.vstack((self.dataRoll, self.dataPitch))
         ax.plot(plotData.T)
         ax.set_title('Roll and Pitch')
-        ax.legend('Roll', 'Pitch')
+        ax.legend(['Roll', 'Pitch'])
         plt.show()
 
 

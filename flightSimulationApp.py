@@ -181,16 +181,24 @@ class App(QWidget):
         self.startFlightButton.move(10, 70)
         self.startFlightButton.clicked.connect(self.startFlight)
 
+        # Stop Flight button
+        self.offButton = QPushButton('Stop Flight', self)
+        self.offButton.resize(100, 50)
+        self.offButton.move(10, 130)
+        self.offButton.clicked.connect(self.stopFlight)
+
         # OFF button
         self.offButton = QPushButton('OFF', self)
         self.offButton.resize(100, 50)
-        self.offButton.move(10, 130)
+        self.offButton.move(10, 490)
         self.offButton.clicked.connect(self.off)
+
 
         # Add text input field
         self.textInput = QLineEdit('1', self)
         self.textInput.resize(100, 50)
         self.textInput.move(10, 190)
+
 
         self.show()
 
@@ -222,6 +230,7 @@ class App(QWidget):
         self.buttonEndCalibration.move(10, 430)
         self.buttonEndCalibration.clicked.connect(self.endCalibration)
         self.buttonEndCalibration.show()
+
         self.show()
 
     def calibrateX(self):
@@ -265,7 +274,7 @@ class App(QWidget):
         self.calibrationThread = threading.Thread(target=self.acquisition.acquireData)
         self.calibrationThread.start()     
 
-    def off(self):
+    def stopFlight(self):
         # Add plot button to the interface
         print("Stopping...")
         self.stop.set()
@@ -293,6 +302,15 @@ class App(QWidget):
         ax.set_title('Roll and Pitch')
         ax.legend(['Roll', 'Pitch'])
         plt.show()
+
+    def off(self):
+        # Close serial communication and stop the application
+        self.ser.write("kraj letenja\n".encode())
+        self.ser.close()
+        self.stop.set()
+        # End the application
+        sys.exit()
+
 
 
 if __name__ == '__main__':

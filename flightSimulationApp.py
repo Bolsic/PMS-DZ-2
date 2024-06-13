@@ -99,8 +99,6 @@ class Acquisition:
         # Read data from Arduino TWICE
         for dataArray in [dataPlus, dataMinus]:
 
-        
-
             calibrationStartTime = time.time()
             i = 0
             while i < 5:

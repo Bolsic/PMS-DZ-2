@@ -104,8 +104,8 @@ class Acquisition:
             while i < 5:
 
                 # If the OFF button is pressed break
-                if self.stop.isSet():
-                    return
+                # if self.stop.isSet():
+                #     return
 
                 print("Elapsed time: ", time.time() - calibrationStartTime)
                 print("Reading data...")
@@ -120,6 +120,8 @@ class Acquisition:
                     i += 1
                     if (i == 5):
                         self.isCalibrated[coordinateNum] = True
+
+            time.sleep(1)
             if iteration == 0:
                 self.ser.write(commandMsg.encode())
                 iteration += 1
@@ -251,7 +253,7 @@ class App(QWidget):
     def calibrateCoordinate(self, coordinate):
         self.calibrationThread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
         self.calibrationThread.start()
-        #self.calibrationThread.join()
+        self.calibrationThread.join()
     
     def endCalibration(self):
         # Check if all axies were calibrated

@@ -98,9 +98,17 @@ class Acquisition:
         iteration = 0
         # Read data from Arduino TWICE
         for dataArray in [dataPlus, dataMinus]:
+
+        
+
             calibrationStartTime = time.time()
             i = 0
             while i < 5:
+
+                # If the OFF button is pressed break
+                if self.stop.isSet():
+                    return
+
                 print("Elapsed time: ", time.time() - calibrationStartTime)
                 print("Reading data...")
                 if (time.time() - calibrationStartTime >= 18):
@@ -245,7 +253,7 @@ class App(QWidget):
     def calibrateCoordinate(self, coordinate):
         self.calibrationThread = threading.Thread(target=self.acquisition.calibrate, args=(coordinate,))
         self.calibrationThread.start()
-        self.calibrationThread.join()
+        #self.calibrationThread.join()
     
     def endCalibration(self):
         # Check if all axies were calibrated
